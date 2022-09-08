@@ -30,7 +30,7 @@ function write(text, y)
     term.clearLine()
     term.write(text)
 end
-function write(text, x, y)
+function writeSpec(text, x, y)
     term.setCursorPos(x, y)
     term.clearLine()
     term.write(text)
@@ -55,7 +55,7 @@ function readAnim(file, h, offset, yPos, speed)
     local len = #lines
     for i=1, len, h+1 do
         for j=0, h-1, 1 do
-            write(lines[i+j], offset, yPos+j)
+            writeSpec(lines[i+j], offset, yPos+j)
         end
         sleep(tonumber(lines[i+h])*speed)
     end
