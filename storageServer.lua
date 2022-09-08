@@ -6,24 +6,31 @@ local dbIndeces = ""
 local inChest = settings.get("inChest", "right")
 local outChest = settings.get("outChest", "top")
 local pw = settings.get("pw", "")
+math.randomseed(os.time())
+local secCode = settings.get("secCode", math.random(1000,9999))
 local modem = peripheral.find("modem", function(name, modem)
     return modem.isWireless()
 end)
+local dbChannel = 1511 + os.computerID()
+local dbSigninChannel = 1509 - os.computerID()
 
 function setup()
-    print("Enter storage name:\n")
+    term.clear()
+    term.setCursorPos(1,1)
+    print("Enter storage name:")
     os.setComputerLabel(read())
     setPw()
-    print("Enter In Chest side:\n")
+    print("\nEnter In Chest side:")
     inChest = read()
     settings.set("inChest", inChest)
-    print("Enter Out Chest side:\n")
+    print("\nEnter Out Chest side:")
     outChest = read()
     settings.set("outChest", outChest)
     settings.set("setupDone", 1)
+    term.clear()
 end
 function setPw()
-    print("Enter Password:\n")
+    print("\nEnter Password:")
     pw = read("*")
     settings.set("pw", pw)
 end
@@ -31,38 +38,52 @@ end
 function goOnline()
     -- Signup channel
     modem.open(1510)
-
+    modem.open(dbSigninChannel)
+    modem.open(dbChannel)
 end
 function listenModem()
     local event, _, channel, replyChannel, message, _ = os.pullEvent("modem_message")
-    if channel == 1510 then
-        modem.transmit(1510, 1511, os.computerLabel())
-    else if channel == 1511 then
-        
+    if channel == dbChannel then
+        if unencrypt(message, secCode) == "getdb" then
+            modem.transmit(dbChannel, dbChannel, dbIndeces)
+        end
+    elseif channel == 1510 then
+        modem.transmit(1510, dbSigninChannel, os.computerLabel())
+    elseif channel == dbSigninChannel then
+        if message == "getCode" then
+            term.clear()
+            term.setCursorPos(1,1)
+            print("Signup code: " .. secCode)
+            settings.set("secCode", secCode)
+            modem.transmit(dbSigninChannel, dbSigninChannel, "ready")
+        else
+            term.clear()
+            if unencrypt(message, secCode) == pw then
+                modem.transmit(dbSigninChannel, dbChannel, "success")
+            end
+        end
+    end
 end
 
-
 function scanStorage()
+    term.setCursorPos(1,1)
     print("Scanning...")
     storageChests = {peripheral.find("inventory", function(name, modem)
         return name ~= inChest and name ~= outChest
     end)}
 
     for i=1, #storageChests do
-        for _, item in ipairs(storageChests[i].list()) do
+        for slot, item in pairs(storageChests[i].list()) do
             if db[item.name] == nil then
-                db[item.name] = db[item.count]
+                db[item.name] = {[i]={slot}, ["c"]=item.count}
                 dbIndeces = dbIndeces .. " " .. item.name
             else
-                db[item.name] = db[item.name] + db[item.count]
+                db[item.name][i].insert(slot)
+                db[item.name]["c"] = db[item.name]["c"] + db[item.count]
             end
         end
     end
     print("Complete!")
-end
-
-function getOptions(input)
-    return buildList(string.gmatch(dbIndeces, "%S*"..input.."%S*"))
 end
 
 function search(input)

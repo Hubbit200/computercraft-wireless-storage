@@ -1,82 +1,120 @@
+require "LeOS-utils"
+
 local w, h = term.getSize()
-local modem = nil
+local modem = peripheral.find("modem")
+local connectedDB = settings.get("connectedDB", -1)
+local dbSecureCode = settings.get("dbSecureCode", -1)
+local dbIndeces = ""
 
 -- Functions --
 
-function centreWrite(text, y)
-    term.setCursorPos(w/2 - #text/2, y)
-    term.clearLine()
-    term.write(term)
-end
-function write(text, y)
-    term.setCursorPos(1, y)
-    term.clearLine()
-    term.write(text)
-end
-function clearLine(y)
-    term.setCursorPos(1, y)
-    term.clearLine()
-end
+function checkDBConnection()
+    if connectedDB == -1 then
+        loadScreen()
+        modem.open(1510)
+        modem.transmit(1510, 1510, "list")
 
-function startup()
-    term.clear()
-    centreWrite(" ______", h/2-2)
-    sleep(0.1)
-    centreWrite("| LeOS |", h/2-1)
-    sleep(0.1)
-    centreWrite("|  __  |", h/2)
-    sleep(0.1)
-    centreWrite("|_|  |_|", h/2+1)
-    sleep(1)
-    centreWrite("——————", h/2-2)
-    centreWrite("/  L OS  ∖", h/2-1)
-    centreWrite("|   __   |", h/2)
-    centreWrite("|_/    |_|", h/2+1)
-    sleep(0.2)
-    term.clear()
-    centreWrite("— —— —", h/2-3)
-    centreWrite("/    OS   ∖", h/2-1)
-    centreWrite("|          |", h/2)
-    centreWrite("| /   —  |_", h/2+1)
-    sleep(0.2)
-    term.clear()
-    centreWrite("  —", h/2-3)
-    centreWrite("    OS     ∖", h/2-1)
-    centreWrite("           |", h/2)
-    centreWrite("|     —    _", h/2+2)
-    sleep(0.2)
-    term.clear()
-    centreWrite("      ", h/2-1)
-    centreWrite("|          _", h/2+2)
-    term.clear()
+        y = 3
+        dbList = {}
+        while connectedDB == -1 do
+            parallel.waitForAny(addDBOption, selectDBOption)
+        end
+        signIn()
+        modem.close(1510)
+    else
+        modem.open(connectedDB)
+    end
 end
-
-function startNetwork()
-    modem = peripheral.find("modem")
-    modem.open()
+function addDBOption()
+    if y == 3 then
+        term.clear()
+        centreWrite("CHOOSE DB", 1)
+        centreWrite(string.rep("-", w), 2)
+    end
+    local event, _, _, replyChannel, message, _ = os.pullEvent("modem_message")
+    write(message, y)
+    y = y + 1
+    dbList[#dbList+1] = replyChannel
+end
+function selectDBOption()
+    local event, _, x2, y2
+    repeat
+        event, _, x2, y2 = os.pullEvent("mouse_click")
+    until (y2 > 2 and y2 < #dbList+3)
+    term.clear()
+    connectedDB = dbList[y2-2]
+    modem.open(connectedDB)
+    modem.transmit(connectedDB, connectedDB, "getCode")
+end
+function signIn()
+    local event, _, _, replyChannel, message, _ = os.pullEvent("modem_message")
+    if message == "ready" then
+        centreWrite("LOGIN", 1)
+        centreWrite(string.rep("-", w), 2)
+        write("Password:", 3)
+        term.setCursorPos(1, 4)
+        local pswd = read("*")
+        write("Signup code:", 6)
+        term.setCursorPos(1, 7)
+        dbSecureCode = read("*")
+        modem.transmit(connectedDB, replyChannel, encrypt(pswd, dbSecureCode))
+        local event2, _, _, replyChannel2, message2, _ = os.pullEvent("modem_message")
+        if message2 == "success" then
+            modem.close(connectedDB)
+            connectedDB = replyChannel2
+            settings.set("connectedDB", replyChannel2)
+            settings.set("dbSecureCode", dbSecureCode)
+        else
+            centreWrite("Incorrect credentials", h/2)
+            modem.close(connectedDB)
+            sleep(1)
+            connectedDB = -1
+            checkDBConnection()
+        end
+    else
+        centreWrite("Server 503", h/2)
+        modem.close(connectedDB)
+        sleep(1)
+        connectedDB = -1
+        checkDBConnection()
+    end
 end
 
 function storageSearchScreen()
-    write("STORAGE SEARCH")
-    write(string.rep("-", x))
+    loadScreen()
+    modem.transmit(connectedDB, connectedDB, encrypt("getdb", dbSecureCode))
+    local event, _, _, _, message, _ = os.pullEvent("modem_message")
+    dbIndeces = message
+    term.clear()
+    centreWrite("STORAGE SEARCH", 1)
+    write(string.rep("-", w), 2)
+    write(string.rep("-", w), h - 1)
+    searchWindow = window.create(term.current(), 1,3,w,h-4)
+    term.setCursorPos(1, h)
 end
-function searchQuery(text)
 
+function searchQuery(input)
+    return buildList(string.gmatch(dbIndeces, "%S*"..input.."%S*"))
 end
 
 -- START --
-startup()
+readAnim("amogus.txt", 5, 6, h/3, 0.05)
+checkDBConnection()
 
 storageSearchScreen()
 while true do
     read(nil, nil, function(text)
         if text ~= "" then
-            pos = 3
-            for _,i in pairs(getOptions(text)) do
-                clearLine(pos)
-                term.write(i)
+            local pos = 1
+            searchWindow.clear()
+            for _,i in pairs(searchQuery(text)) do
+                searchWindow.setCursorPos(1, pos)
+                searchWindow.write(i)
                 pos = pos + 1
             end
+        else
+            searchWindow.clear()
         end
+        term.setCursorPos(1, h)
     end)
 end

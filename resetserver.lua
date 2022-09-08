@@ -1,0 +1,6 @@
+settings.clear("verifiedUsers")
+settings.clear("inChest")
+settings.clear("outChest")
+settings.clear("pw")
+settings.clear("secCode")
+os.reboot()
