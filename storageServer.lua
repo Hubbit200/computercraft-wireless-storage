@@ -1,4 +1,5 @@
 require "utils"
+require "cc.pretty"
 
 local verifiedUsers = settings.get("verifiedUsers", {})
 local db = {}
@@ -44,15 +45,11 @@ end
 function listenModem()
     local _, _, channel, replyChannel, message, _ = os.pullEvent("modem_message")
     if channel == dbChannel then
-        if type(message) == table then
-            print(message[1])
-            if unencrypt(message[1], secCode) == "pull" then
-                extract(message[2], message[3])
-            end
-        else
-            if unencrypt(message, secCode) == "getdb" then
-                modem.transmit(dbChannel, dbChannel, dbIndeces)
-            end
+        local action = unencrypt(message[1], secCode)
+        if action == "pull" then
+            extract(message[2], tonumber(message[3]))
+        elseif action == "getdb" then
+            modem.transmit(dbChannel, dbChannel, dbIndeces)
         end
     elseif channel == 1510 then
         modem.transmit(1510, dbSigninChannel, os.computerLabel())
@@ -81,11 +78,17 @@ function scanStorage()
 
     for i=1, #storageChests do
         for slot, item in pairs(storageChests[i].list()) do
-            if item.name ~= nil and db[item.name] == nil then
-                db[item.name] = {[i]={slot}, ["c"]=item.count}
-            elseif item.name ~= nil then
-                db[item.name][i].insert(slot)
-                db[item.name]["c"] = db[item.name]["c"] + db[item.count]
+            if item.name ~= nil then
+                if db[item.name] == nil then
+                    db[item.name] = {[i]={slot}, ["c"]=item.count}
+                else
+                    if db[item.name][i] == nil then
+                        db[item.name][i] = {slot}
+                    else
+                        table.insert(db[item.name][i], slot)
+                    end
+                    db[item.name]["c"] = db[item.name]["c"] + item.count
+                end
             end
         end
     end
@@ -102,32 +105,40 @@ end
 
 function extract(name, count)
     local extractedCount = 0
-    for s, slots in db[name] do
-        if s ~= "c" then
-            for slot in slots do
-                extractedCount = extractedCount + storageChests[s].pushItems(outChest, slot, count)
+    for barrel, slots in pairs(db[name]) do
+        if barrel ~= "c" then
+            for _, slot in ipairs(slots) do
+                extractedCount = extractedCount + storageChests[barrel].pushItems(outChest, slot, count-extractedCount)
                 if extractedCount >= count then
                     return 1
                 end
             end
         end
     end
+    return 0
 end
 
 function listenInput()
     os.pullEvent("redstone")
-    while rs.getInput("back") == true do
+    while rs.getInput("front") == true do
         for slot, item in pairs(inChestWrapped.list()) do
             if item.name ~= nil then
                 local transferredAmount = 0
-                while transferredAmount < item.count do
-                    inChestWrapped.pushItems()
-                end
-                if db[item.name] == nil then
-                    db[item.name] = {[i]={slot}, ["c"]=item.count}
-                else
-                    db[item.name][i].insert(slot)
-                    db[item.name]["c"] = db[item.name]["c"] + db[item.count]
+                for i=1, #storageChests do
+                    transferredAmount = transferredAmount + inChestWrapped.pushItems(peripheral.getName(storageChests[i]), slot)
+                    if db[item.name] == nil then
+                        db[item.name] = {[i]={slot}, ["c"]=item.count}
+                    else
+                        if db[item.name][i] == nil then
+                            db[item.name][i] = {slot}
+                        else
+                            table.insert(db[item.name][i], slot)
+                        end
+                        db[item.name]["c"] = db[item.name]["c"] + item.count
+                    end
+                    if transferredAmount >= item.count then
+                        break
+                    end
                 end
             end
         end

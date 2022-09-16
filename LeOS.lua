@@ -83,7 +83,8 @@ end
 
 function storageSearchScreen()
     loadScreen()
-    modem.transmit(connectedDB, connectedDB, encrypt("getdb", dbSecureCode))
+    sleep(0.3)
+    modem.transmit(connectedDB, connectedDB, {encrypt("getdb", dbSecureCode)})
     local _, _, _, _, message, _ = os.pullEvent("modem_message")
     dbIndeces = message
     term.clear()
