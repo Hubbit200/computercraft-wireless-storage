@@ -1,3 +1,3 @@
-settings.clear("connectedDB")
-settings.clear("dbSecureCode")
+settings.clear()
+settings.save(".leosclient-settings")
 os.reboot()

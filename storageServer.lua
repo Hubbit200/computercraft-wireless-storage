@@ -1,8 +1,9 @@
 require "utils"
 require "cc.pretty"
 
+settings.load(".leos-settings")
 local verifiedUsers = settings.get("verifiedUsers", {})
-local db = {}
+db = {}
 local dbIndeces = ""
 local inChest = settings.get("inChest", "")
 local inChestWrapped
@@ -29,6 +30,7 @@ function setup()
     outChest = read()
     settings.set("outChest", outChest)
     settings.set("setupDone", 1)
+    settings.save(".leos-settings")
     term.clear()
 end
 function setPw()
@@ -37,6 +39,7 @@ function setPw()
     settings.set("pw", pw)
 end
 
+-- MODEM ..
 function goOnline()
     modem.open(1510)
     modem.open(dbSigninChannel)
@@ -59,6 +62,7 @@ function listenModem()
             term.setCursorPos(1,1)
             print("Signup code: " .. secCode)
             settings.set("secCode", secCode)
+            settings.save(".leos-settings")
             modem.transmit(dbSigninChannel, dbSigninChannel, "ready")
         else
             term.clear()
@@ -70,15 +74,17 @@ function listenModem()
 end
 
 function scanStorage()
+    term.clear()
     term.setCursorPos(1,1)
     print("Scanning...")
+    db = {}
     storageChests = {peripheral.find("inventory", function(name, modem)
         return name ~= inChest and name ~= outChest
     end)}
 
     for i=1, #storageChests do
         for slot, item in pairs(storageChests[i].list()) do
-            if item.name ~= nil then
+            if item ~= nil then
                 if db[item.name] == nil then
                     db[item.name] = {[i]={slot}, ["c"]=item.count}
                 else
@@ -105,40 +111,67 @@ end
 
 function extract(name, count)
     local extractedCount = 0
+    local toRemove = {}
     for barrel, slots in pairs(db[name]) do
         if barrel ~= "c" then
-            for _, slot in ipairs(slots) do
+            for i, slot in pairs(slots) do
                 extractedCount = extractedCount + storageChests[barrel].pushItems(outChest, slot, count-extractedCount)
+                if storageChests[barrel].getItemDetail(slot) == nil then
+                    table.insert(toRemove, {barrel, i})
+                end
                 if extractedCount >= count then
+                    db[name]["c"] = db[name]["c"] - extractedCount
+                    if db[name]["c"] == 0 then
+                        db[name] = nil
+                    else
+                        for _, t in pairs(toRemove) do
+                            table.remove(db[name][t[1]], t[2])
+                            if #db[name][t[1]] == 0 then
+                                db[name][barrel] = nil
+                                break
+                            end
+                        end
+                    end
+                    buildIndeces()
+                    modem.transmit(dbChannel, dbChannel, dbIndeces)
                     return 1
                 end
             end
         end
     end
+    modem.transmit(dbChannel, dbChannel, "insufficient")
     return 0
 end
 
 function listenInput()
     os.pullEvent("redstone")
-    while rs.getInput("front") == true do
+    while rs.getInput("bottom") == true do
         for slot, item in pairs(inChestWrapped.list()) do
-            if item.name ~= nil then
-                local transferredAmount = 0
-                for i=1, #storageChests do
-                    transferredAmount = transferredAmount + inChestWrapped.pushItems(peripheral.getName(storageChests[i]), slot)
-                    if db[item.name] == nil then
-                        db[item.name] = {[i]={slot}, ["c"]=item.count}
-                    else
-                        if db[item.name][i] == nil then
-                            db[item.name][i] = {slot}
+            local transferredAmount = 0
+            for i=1, #storageChests do
+                for j=1, 27 do
+                    local newAmount = inChestWrapped.pushItems(peripheral.getName(storageChests[i]), slot, 65, j)
+                    if newAmount > 0 then
+                        transferredAmount = transferredAmount + newAmount
+                        if db[item.name] == nil then
+                            db[item.name] = {[i]={j}, ["c"]=0}
                         else
-                            table.insert(db[item.name][i], slot)
+                            if db[item.name][i] == nil then
+                                db[item.name][i] = {j}
+                            else
+                                table.insert(db[item.name][i], j)
+                            end
                         end
-                        db[item.name]["c"] = db[item.name]["c"] + item.count
+                        if transferredAmount >= item.count then
+                            break
+                        end
                     end
-                    if transferredAmount >= item.count then
-                        break
-                    end
+                end
+                if transferredAmount >= item.count then
+                    db[item.name]["c"] = db[item.name]["c"] + transferredAmount
+                    buildIndeces()
+                    modem.transmit(dbChannel, dbChannel, dbIndeces)
+                    break
                 end
             end
         end

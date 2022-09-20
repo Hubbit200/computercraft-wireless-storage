@@ -1,6 +1,3 @@
-settings.clear("verifiedUsers")
-settings.clear("inChest")
-settings.clear("outChest")
-settings.clear("pw")
-settings.clear("secCode")
+settings.clear()
+settings.save(".leos-settings")
 os.reboot()

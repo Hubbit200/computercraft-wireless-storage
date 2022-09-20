@@ -1,5 +1,6 @@
 require "LeOS-utils"
 
+settings.load(".leosclient-settings")
 local w, h = term.getSize()
 local modem = peripheral.find("modem")
 local connectedDB = settings.get("connectedDB", -1)
@@ -22,9 +23,8 @@ function checkDBConnection()
         end
         signIn()
         modem.close(1510)
-    else
-        modem.open(connectedDB)
     end
+    modem.open(connectedDB)
 end
 function addDBOption()
     if y == 3 then
@@ -65,6 +65,7 @@ function signIn()
             connectedDB = replyChannel2
             settings.set("connectedDB", replyChannel2)
             settings.set("dbSecureCode", dbSecureCode)
+            settings.save(".leosclient-settings")
         else
             centreWrite("Incorrect credentials", h/2)
             modem.close(connectedDB)
@@ -83,7 +84,7 @@ end
 
 function storageSearchScreen()
     loadScreen()
-    sleep(0.3)
+    sleep(0.1)
     modem.transmit(connectedDB, connectedDB, {encrypt("getdb", dbSecureCode)})
     local _, _, _, _, message, _ = os.pullEvent("modem_message")
     dbIndeces = message
@@ -96,6 +97,7 @@ function storageSearchScreen()
     end
     term.setCursorPos(1, h)
 end
+
 function searchQuery(input)
     return buildList(string.gmatch(dbIndeces, "%S*"..input.."%S*"))
 end
@@ -108,7 +110,7 @@ function searchInput()
                 displayedItems = searchQuery(text)
                 local a, b
                 for _,i in pairs(displayedItems) do
-                    a, b = i:match("([^~]+)~([^~]+)")
+                    a, b = i:match(":([^~]+)~([^~]+)")
                     searchWindow.setCursorPos(1, pos)
                     searchWindow.write(a)
                     searchWindow.setCursorPos(w-2, pos)
@@ -123,6 +125,9 @@ function searchInput()
             end
             term.setCursorPos(1, h)
         end)
+        term.scroll(-1)
+        centreWrite("STORAGE SEARCH", 1)
+        clearLine(h)
     end
 end
 function selectItemClick()
@@ -136,7 +141,7 @@ function selectItemEnter()
     local key
     repeat
         _, key = os.pullEvent("key")
-    until key == keys.enter
+    until key == keys.enter and #displayedItems > 0
     itemInfo(1)
 end
 
@@ -144,11 +149,28 @@ function itemInfo(index)
     term.clear()
     name, count = displayedItems[index]:match("([^~]+)~([^~]+)")
     count = tonumber(count)
-    centreWrite(name, 1)
+    centreWrite(name:match(":(.+)"), 1)
     write(string.rep("-", w), 2)
     write("Available: " .. count, 3)
     write("Enter 0 to return to list", h)
-    write("Amount to extract:", 5)
+end
+
+function dbUpdate()
+    while true do
+        local _, _, _, _, message, _ = os.pullEvent("modem_message")
+        dbIndeces = message
+    end
+end
+
+-- ERRORS --
+function error(message)
+    term.clear()
+    centreWrite(string.rep("-", #message+2), h/2-2)
+    centreWrite("ERROR", h/2-1)
+    centreWrite(message, h/2)
+    centreWrite(string.rep("-", #message+2), h/2+1)
+    sleep(1.5)
+    term.clear()
 end
 
 -- START --
@@ -158,11 +180,13 @@ checkDBConnection()
 while true do
     storageSearchScreen()
     local displayedItems
-    parallel.waitForAny(searchInput, selectItemClick, selectItemEnter)
+    parallel.waitForAny(searchInput, selectItemClick, selectItemEnter, dbUpdate)
     local selectedAmount = ""
-    while tonumber(selectedAmount) == nil or tonumber(selectedAmount) > count do
+    while tonumber(selectedAmount) == nil or tonumber(selectedAmount) > count or tonumber(selectedAmount) < 0 do
+        term.setTextColour(colors.white)
+        write("Amount to extract: ", 5)
         selectedAmount = read(nil, nil, function(text)
-            if tonumber(text) == nil or tonumber(text) > count then
+            if tonumber(text) == nil or tonumber(text) > count or tonumber(text) < 0 then
                 term.setTextColour(colors.red)
             else
                 term.setTextColour(colors.white)
@@ -171,5 +195,10 @@ while true do
     end
     if selectedAmount ~= 0 then
         modem.transmit(connectedDB, connectedDB, {encrypt("pull", dbSecureCode), name, selectedAmount})
+        loadScreen()
+        local _, _, _, _, message, _ = os.pullEvent("modem_message")
+        if message == "insufficient" then
+            error("Insufficient")
+        end
     end
 end
