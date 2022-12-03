@@ -5,9 +5,9 @@ settings.load(".leos-settings")
 local verifiedUsers = settings.get("verifiedUsers", {})
 db = {}
 local dbIndeces = ""
-local inChest = settings.get("inChest", "")
+local inChest = settings.get("inChest", nil)
 local inChestWrapped
-local outChest = settings.get("outChest", "")
+local outChest = settings.get("outChest", nil)
 local pw = settings.get("pw", "")
 math.randomseed(os.time())
 local secCode = settings.get("secCode", math.random(1000,9999))
@@ -46,34 +46,37 @@ function goOnline()
     modem.open(dbChannel)
 end
 function listenModem()
-    local _, _, channel, replyChannel, message, _ = os.pullEvent("modem_message")
-    if channel == dbChannel then
-        local action = unencrypt(message[1], secCode)
-        if action == "pull" then
-            extract(message[2], tonumber(message[3]))
-        elseif action == "getdb" then
-            modem.transmit(dbChannel, dbChannel, dbIndeces)
-        end
-    elseif channel == 1510 then
-        modem.transmit(1510, dbSigninChannel, os.computerLabel())
-    elseif channel == dbSigninChannel then
-        if message == "getCode" then
-            term.clear()
-            term.setCursorPos(1,1)
-            print("Signup code: " .. secCode)
-            settings.set("secCode", secCode)
-            settings.save(".leos-settings")
-            modem.transmit(dbSigninChannel, dbSigninChannel, "ready")
-        else
-            term.clear()
-            if unencrypt(message, secCode) == pw then
-                modem.transmit(dbSigninChannel, dbChannel, "success")
+    while true do
+        local _, _, channel, replyChannel, message, _ = os.pullEvent("modem_message")
+        if channel == dbChannel then
+            local action = unencrypt(message[1], secCode)
+            if action == "pull" then
+                extract(message[2], tonumber(message[3]))
+            elseif action == "getdb" then
+                modem.transmit(dbChannel, dbChannel, dbIndeces)
+            end
+        elseif channel == 1510 then
+            modem.transmit(1510, dbSigninChannel, os.computerLabel())
+        elseif channel == dbSigninChannel then
+            if message == "getCode" then
+                term.clear()
+                term.setCursorPos(1,1)
+                print("Signup code: " .. secCode)
+                settings.set("secCode", secCode)
+                settings.save(".leos-settings")
+                modem.transmit(dbSigninChannel, dbSigninChannel, "ready")
+            else
+                term.clear()
+                if unencrypt(message, secCode) == pw then
+                    modem.transmit(dbSigninChannel, dbChannel, "success")
+                end
             end
         end
     end
 end
 
 function scanStorage()
+    -- scans storage and builds db - a table of items and their quantities
     term.clear()
     term.setCursorPos(1,1)
     print("Scanning...")
@@ -110,6 +113,7 @@ function buildIndeces()
 end
 
 function extract(name, count)
+    -- extract specific items from storage
     local extractedCount = 0
     local toRemove = {}
     for barrel, slots in pairs(db[name]) do
@@ -144,34 +148,43 @@ function extract(name, count)
 end
 
 function listenInput()
-    os.pullEvent("redstone")
-    while rs.getInput("bottom") == true do
-        for slot, item in pairs(inChestWrapped.list()) do
-            local transferredAmount = 0
-            for i=1, #storageChests do
-                for j=1, 27 do
-                    local newAmount = inChestWrapped.pushItems(peripheral.getName(storageChests[i]), slot, 65, j)
-                    if newAmount > 0 then
-                        transferredAmount = transferredAmount + newAmount
-                        if db[item.name] == nil then
-                            db[item.name] = {[i]={j}, ["c"]=0}
-                        else
-                            if db[item.name][i] == nil then
-                                db[item.name][i] = {j}
-                            else
-                                table.insert(db[item.name][i], j)
+    -- listen for redstone input, if active insert new items into storage
+    while true do
+        os.pullEvent("redstone")
+        if inChestWrapped == nil then
+            inChestWrapped = peripheral.wrap(inChest)
+        end
+        while rs.getInput("bottom") == true do
+            for slot, item in pairs(inChestWrapped.list()) do
+                local transferredAmount = 0
+                for i=1, #storageChests do
+                    local contents = storageChests[i].list()
+                    for j=1, 27 do
+                        if contents[j] == nil or (contents[j].name == item.name and contents[j].count < 64) then
+                            local newAmount = inChestWrapped.pushItems(peripheral.getName(storageChests[i]), slot, 65, j)
+                            if newAmount > 0 then
+                                transferredAmount = transferredAmount + newAmount
+                                if db[item.name] == nil then
+                                    db[item.name] = {[i]={j}, ["c"]=0}
+                                else
+                                    if db[item.name][i] == nil then
+                                        db[item.name][i] = {j}
+                                    else
+                                        table.insert(db[item.name][i], j)
+                                    end
+                                end
+                                if transferredAmount >= item.count then
+                                    break
+                                end
                             end
                         end
-                        if transferredAmount >= item.count then
-                            break
-                        end
                     end
-                end
-                if transferredAmount >= item.count then
-                    db[item.name]["c"] = db[item.name]["c"] + transferredAmount
-                    buildIndeces()
-                    modem.transmit(dbChannel, dbChannel, dbIndeces)
-                    break
+                    if transferredAmount >= item.count then
+                        db[item.name]["c"] = db[item.name]["c"] + transferredAmount
+                        buildIndeces()
+                        modem.transmit(dbChannel, dbChannel, dbIndeces)
+                        break
+                    end
                 end
             end
         end
@@ -186,4 +199,4 @@ inChestWrapped = peripheral.wrap(inChest)
 scanStorage()
 
 goOnline()
-while true do parallel.waitForAny(listenModem, listenInput) end
+parallel.waitForAll(listenModem, listenInput)
