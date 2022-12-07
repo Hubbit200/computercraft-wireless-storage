@@ -1,2 +1,2 @@
 # computercraft-wireless-storage
- A wireless storage system built in LUA for ComputerCraft in Minecraft, with features such as password protection, autocomplete search, and remote inventory management.
+ A wireless storage/computer system in LUA for ComputerCraft (Minecraft), with features such as password protection, encryption, autocomplete search, and remote inventory management.
