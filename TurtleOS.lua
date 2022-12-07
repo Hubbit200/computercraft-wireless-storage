@@ -184,9 +184,9 @@ end
 function updateServer()
 	local myTimer
 	while true do
-		myTimer = os.startTimer(10)
+		myTimer = os.startTimer(20)
 		local event, timerNumber = os.pullEvent("timer")
-		if not fuelLevel <= emergencyFuel then
+		if not (fuelLevel <= emergencyFuel) then
 			fuelLevel = turtle.getFuelLevel()
 			modem.transmit(1511+id, 1511+id, {id, "Running " .. math.floor(blocksDone/totalBlocks*100) .. "%, Fuel " .. fuelLevel})
 		else
@@ -198,7 +198,7 @@ function updateServerStandby()
 	fuelLevel = turtle.getFuelLevel()
 	local myTimer
 	while true do
-		myTimer = os.startTimer(10)
+		myTimer = os.startTimer(30)
 		local event, timerNumber = os.pullEvent("timer")
 		modem.transmit(1511+id, 1511+id, {id, "Standby, Fuel " .. fuelLevel})
 	end
@@ -211,6 +211,9 @@ end
 
 -- START LOOP
 -- (Mining setup)
+term.clear()
+term.setCursorPos(1,1)
+term.write("-- ACTIVE --")
 if safeId == -1 then
 	term.write("Enter safe id: ")
 	safeId = tonumber(read())

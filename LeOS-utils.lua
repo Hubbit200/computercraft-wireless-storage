@@ -21,7 +21,7 @@ end
 -- Writing functions
 
 function centreWrite(text, y)
-    term.setCursorPos(w/2 - #text/2, y)
+    term.setCursorPos(w/2 - #text/2 + 1, y)
     term.clearLine()
     term.write(text)
 end
@@ -38,6 +38,11 @@ end
 function clearLine(y)
     term.setCursorPos(1, y)
     term.clearLine()
+end
+function divider(y)
+    term.setCursorPos(1, y)
+    term.clearLine()
+    term.write(string.rep("-", w))
 end
 function loadScreen()
     term.clear()

@@ -34,7 +34,7 @@ function addDBOption()
     if y == 3 then
         term.clear()
         centreWrite("CHOOSE DB", 1)
-        centreWrite(string.rep("-", w), 2)
+        divider(2)
     end
     local _, _, _, replyChannel, message, _ = os.pullEvent("modem_message")
     write(message, y)
@@ -55,7 +55,7 @@ function signIn()
     local _, _, _, replyChannel, message, _ = os.pullEvent("modem_message")
     if message == "ready" then
         centreWrite("LOGIN", 1)
-        centreWrite(string.rep("-", w), 2)
+        divider(2)
         write("Password:", 3)
         term.setCursorPos(1, 4)
         local pswd = read("*")
@@ -94,8 +94,8 @@ function storageSearchScreen()
     dbIndeces = message
     term.clear()
     centreWrite("STORAGE SEARCH", 1)
-    write(string.rep("-", w), 2)
-    write(string.rep("-", w), h - 1)
+    divider(2)
+    divider(h-1)
     if searchWindow == nil then
         searchWindow = window.create(term.current(), 1,3,w,h-4)
     end
@@ -159,7 +159,7 @@ function itemInfo(index)
     name, count = displayedItems[index]:match("([^~]+)~([^~]+)")
     count = tonumber(count)
     centreWrite(name:match(":(.+)"), 1)
-    write(string.rep("-", w), 2)
+    divider(2)
     write("Available: " .. count, 3)
     write("Enter 0 to return to list", h)
 end
@@ -201,21 +201,18 @@ end
 function addTurtles()
     term.clear()
     centreWrite("OS ID: " .. os.getComputerID(), h/2)
-    centreWrite("Click anywhere to continue", h)
+    centreWrite("- Click to continue -", h)
     local _, _, _, _ = os.pullEvent("mouse_click")
-    term.clear()
-    loadScreen()
     modem.open(1510)
     modem.transmit(1510, 1510, {"list-turtles", os.getComputerID()})
 
     y = 3
     turtleList = {}
     local done = false
-    while not done do
-        parallel.waitForAny(addTurtleOption, selectTurtleOption, refreshTurtlesOptions)
+    while mode == 2 do
+        parallel.waitForAny(addTurtleOption, selectTurtleOption)
     end
     modem.close(1510)
-    mode = 1
     otherScreen()
 end
 function isTurtleInTable(turtle)
@@ -230,12 +227,12 @@ function addTurtleOption()
     if y == 3 then
         term.clear()
         centreWrite("ADD TURTLES", 1)
-        centreWrite(string.rep("-", w), 2)
-        centreWrite(string.rep("-", w), h-1)
+        divider(2)
+        divider(h-1)
         centreWrite("DONE", h)
     end
     local _, _, _, replyChannel, message, _ = os.pullEvent("modem_message")
-    if not isTurtleInTable(message) then
+    if type(message) == "number" and not isTurtleInTable(message) then
         write("Turtle " .. message, y)
         y = y + 1
         turtleList[#turtleList+1] = message
@@ -246,10 +243,13 @@ function selectTurtleOption()
     repeat
         _, _, x2, y2 = os.pullEvent("mouse_click")
     until (y2 == h) or (y2 > 2 and y2 < #turtleList+3 and turtleList[y2-2] ~= nil)
-    if y2 == h then
+    if y2 == h and #connectedTurtles > 0 then
         settings.set("connectedTurtles", connectedTurtles)
         settings.save(".leosclient-settings")
-        done = true
+        for _, t in pairs(connectedTurtles) do
+            modem.open(1511 + t)
+        end
+        mode = 1
     else
         write("- Added -", y2)
         connectedTurtles[#connectedTurtles+1] = turtleList[y2-2]
@@ -258,15 +258,13 @@ function selectTurtleOption()
 end
 
 function otherScreen()
-    loadScreen()
-    sleep(0.1)
     term.clear()
     centreWrite("ACTIVE TURTLES", 1)
-    write(string.rep("-", w), 2)
-    write(string.rep("-", w), h - 1)
+    divider(2)
+    divider(h-1)
     centreWrite("Add turtles", h)
     for i, t in pairs(connectedTurtles) do
-        write("- Turtle " .. t .. "---", 2*i+1)
+        write("- Turtle " .. t .. ":", 2*i+1)
         write("No data...", 2*i+2)
     end
 end
@@ -274,7 +272,7 @@ function clickAddTurtles()
     sleep(0.5)
     while true do
         local _, _, x, y = os.pullEvent("mouse_click")
-        if y == h then
+        if mode == 1 and y == h then
             mode = 2
             addTurtles()
         end
