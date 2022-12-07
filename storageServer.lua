@@ -55,7 +55,7 @@ function listenModem()
             elseif action == "getdb" then
                 modem.transmit(dbChannel, dbChannel, dbIndeces)
             end
-        elseif channel == 1510 then
+        elseif channel == 1510 and type(message) ~= "table" and message == "list" then
             modem.transmit(1510, dbSigninChannel, os.computerLabel())
         elseif channel == dbSigninChannel then
             if message == "getCode" then

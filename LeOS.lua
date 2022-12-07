@@ -4,11 +4,15 @@ settings.load(".leosclient-settings")
 local w, h = term.getSize()
 local modem = peripheral.find("modem")
 local connectedDB = settings.get("connectedDB", -1)
+local connectedTurtles = settings.get("connectedTurtles", {})
 local dbSecureCode = settings.get("dbSecureCode", -1)
+local inExtendedMode = settings.get("inExtendedMode", false)
 local dbIndeces = ""
 local name, count
+local mode = -1 -- -1=storage, 1=turtle list, 2=add turtles
+local turtleList = {}
 
--- Functions --
+-- Storage Functions --
 
 function checkDBConnection()
     if connectedDB == -1 then
@@ -134,15 +138,20 @@ function selectItemClick()
     local x, y
     repeat
         _, _, x, y = os.pullEvent("mouse_click")
-    until (y > 2 and y < #displayedItems+3)
+    until (y > 2 and displayedItems ~= nil and y < #displayedItems+3)
     itemInfo(y-2)
 end
-function selectItemEnter()
+function keyPress()
     local key
     repeat
         _, key = os.pullEvent("key")
-    until key == keys.enter and #displayedItems > 0
-    itemInfo(1)
+    until (key == keys.enter and #displayedItems > 0) or (key == keys.tab and inExtendedMode == true)
+    if mode == -1 and key == keys.enter then
+        itemInfo(1)
+    else
+        if mode < 0 then mode = 1 else mode = -1 end
+        switchMode()
+    end
 end
 
 function itemInfo(index)
@@ -157,8 +166,136 @@ end
 
 function dbUpdate()
     while true do
-        local _, _, _, _, message, _ = os.pullEvent("modem_message")
+        repeat
+            local _, _, _, _, message, _ = os.pullEvent("modem_message")
+        until type(message) ~= "table"
         dbIndeces = message
+    end
+end
+
+-- Other functions --
+function switchMode()
+    -- mode is already switched in keyPress
+    if mode == -1 then
+        for _, t in pairs(connectedTurtles) do
+            modem.close(1511 + t)
+        end
+        returnNum = -1
+        term.setCursorBlink(true)
+        checkDBConnection()
+    else
+        modem.close(connectedDB)
+        term.setCursorBlink(false)
+        checkTurtleConnection()
+    end
+end
+
+function checkTurtleConnection()
+    if connectedTurtles == {} then
+        addTurtles()
+    end
+    for _, t in pairs(connectedTurtles) do
+        modem.open(1511 + t)
+    end
+end
+function addTurtles()
+    term.clear()
+    centreWrite("OS ID: " .. os.getComputerID(), h/2)
+    centreWrite("Click anywhere to continue", h)
+    local _, _, _, _ = os.pullEvent("mouse_click")
+    term.clear()
+    loadScreen()
+    modem.open(1510)
+    modem.transmit(1510, 1510, {"list-turtles", os.getComputerID()})
+
+    y = 3
+    turtleList = {}
+    local done = false
+    while not done do
+        parallel.waitForAny(addTurtleOption, selectTurtleOption, refreshTurtlesOptions)
+    end
+    modem.close(1510)
+    mode = 1
+    otherScreen()
+end
+function isTurtleInTable(turtle)
+    for _, t in pairs(connectedTurtles) do
+        if t == turtle then
+            return true
+        end
+    end
+    return false
+end
+function addTurtleOption()
+    if y == 3 then
+        term.clear()
+        centreWrite("ADD TURTLES", 1)
+        centreWrite(string.rep("-", w), 2)
+        centreWrite(string.rep("-", w), h-1)
+        centreWrite("DONE", h)
+    end
+    local _, _, _, replyChannel, message, _ = os.pullEvent("modem_message")
+    if not isTurtleInTable(message) then
+        write("Turtle " .. message, y)
+        y = y + 1
+        turtleList[#turtleList+1] = message
+    end
+end
+function selectTurtleOption()
+    local x2, y2
+    repeat
+        _, _, x2, y2 = os.pullEvent("mouse_click")
+    until (y2 == h) or (y2 > 2 and y2 < #turtleList+3 and turtleList[y2-2] ~= nil)
+    if y2 == h then
+        settings.set("connectedTurtles", connectedTurtles)
+        settings.save(".leosclient-settings")
+        done = true
+    else
+        write("- Added -", y2)
+        connectedTurtles[#connectedTurtles+1] = turtleList[y2-2]
+        turtleList[y2-2] = nil
+    end
+end
+
+function otherScreen()
+    loadScreen()
+    sleep(0.1)
+    term.clear()
+    centreWrite("ACTIVE TURTLES", 1)
+    write(string.rep("-", w), 2)
+    write(string.rep("-", w), h - 1)
+    centreWrite("Add turtles", h)
+    for i, t in pairs(connectedTurtles) do
+        write("- Turtle " .. t .. "---", 2*i+1)
+        write("No data...", 2*i+2)
+    end
+end
+function clickAddTurtles()
+    sleep(0.5)
+    while true do
+        local _, _, x, y = os.pullEvent("mouse_click")
+        if y == h then
+            mode = 2
+            addTurtles()
+        end
+    end
+end
+function turtleUpdate()
+    for _, t in pairs(connectedTurtles) do
+        modem.transmit(1511 + t, 1511 + t, "get-info")
+    end
+    while true do
+        local message
+        repeat
+            _, _, _, _, message, _ = os.pullEvent("modem_message")
+        until type(message) == "table"
+        if mode == 1 then
+            for i, t in pairs(connectedTurtles) do
+                if message[1] == t then
+                    write(message[2], 2*i + 2)
+                end
+            end
+        end
     end
 end
 
@@ -178,27 +315,34 @@ readAnim("amogus.txt", 5, 6, h/3, 0.05)
 checkDBConnection()
 
 while true do
-    storageSearchScreen()
-    local displayedItems
-    parallel.waitForAny(searchInput, selectItemClick, selectItemEnter, dbUpdate)
-    local selectedAmount = ""
-    while tonumber(selectedAmount) == nil or tonumber(selectedAmount) > count or tonumber(selectedAmount) < 0 do
-        term.setTextColour(colors.white)
-        write("Amount to extract: ", 5)
-        selectedAmount = read(nil, nil, function(text)
-            if tonumber(text) == nil or tonumber(text) > count or tonumber(text) < 0 then
-                term.setTextColour(colors.red)
-            else
+    if mode == -1 then
+        storageSearchScreen()
+        local displayedItems
+        parallel.waitForAny(searchInput, selectItemClick, keyPress, dbUpdate)
+        if mode == -1 then
+            local selectedAmount = ""
+            while tonumber(selectedAmount) == nil or tonumber(selectedAmount) > count or tonumber(selectedAmount) < 0 do
                 term.setTextColour(colors.white)
+                write("Amount to extract: ", 5)
+                selectedAmount = read(nil, nil, function(text)
+                    if tonumber(text) == nil or tonumber(text) > count or tonumber(text) < 0 then
+                        term.setTextColour(colors.red)
+                    else
+                        term.setTextColour(colors.white)
+                    end
+                end)
             end
-        end)
-    end
-    if selectedAmount ~= 0 then
-        modem.transmit(connectedDB, connectedDB, {encrypt("pull", dbSecureCode), name, selectedAmount})
-        loadScreen()
-        local _, _, _, _, message, _ = os.pullEvent("modem_message")
-        if message == "insufficient" then
-            error("Insufficient")
+            if selectedAmount ~= 0 then
+                modem.transmit(connectedDB, connectedDB, {encrypt("pull", dbSecureCode), name, selectedAmount})
+                loadScreen()
+                local _, _, _, _, message, _ = os.pullEvent("modem_message")
+                if message == "insufficient" then
+                    error("Insufficient")
+                end
+            end
         end
+    else
+        otherScreen()
+        parallel.waitForAny(turtleUpdate, clickAddTurtles, keyPress)
     end
 end
